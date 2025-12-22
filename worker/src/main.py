@@ -29,8 +29,7 @@ FLUSH_EVERY = int(os.getenv("FLUSH_EVERY", "20"))
 
 MAX_CONCURRENT = int(os.getenv("MAX_CONCURRENT", "2"))  # <-- concurrency knob
 
-TRAIN_SCRIPT = os.getenv("TRAIN_SCRIPT", "train.py")
-
+TRAIN_SCRIPT = os.getenv("TRAIN_SCRIPT", "./train.py")
 
 # ------------ Small logging helper ------------
 def log(msg: str):
@@ -137,29 +136,35 @@ async def run_train_and_stream(jobs_coll, epochs_coll, job: dict, cmd: list[str]
 
     async def reader():
         assert proc.stdout is not None
+        buf = b""
         while True:
-            line = await proc.stdout.readline()
-            if not line:
+            chunk = await proc.stdout.read(4096)
+            if not chunk:
                 break
-            text = line.decode(errors="ignore").rstrip("\n")
-            log_tail.append(text)
-            batch.append(text)
+            buf += chunk.replace(b"\r", b"\n")
 
-            parsed = parse_epoch_line(text)
-            if parsed is not None:
-                await epochs_coll.insert_one({"jobId": job["_id"], "ts": time.time(), **parsed})
-                log(f"WROTE epoch job={job['_id']} epoch={parsed['epoch']}")
+            while b"\n" in buf:
+                raw, buf = buf.split(b"\n", 1)
+                text = raw.decode(errors="ignore").strip()
+                if not text:
+                    continue
+                log_tail.append(text)
+                batch.append(text)
+                parsed = parse_epoch_line(text)
+                if parsed is not None:
+                    await epochs_coll.insert_one({"jobId": job["_id"], "ts": time.time(), **parsed})
+                    log(f"WROTE epoch job={job['_id']} epoch={parsed['epoch']}")
 
-            if len(batch) >= FLUSH_EVERY:
-                await jobs_coll.update_one(
-                    {"_id": job["_id"], "WorkerId": WORKER_ID},
-                    {
-                        "$set": {"LastLogAt": time.time()},
-                        "$push": {"LogTail": {"$each": batch, "$slice": -MAX_LOG_LINES}},
-                    },
-                )
-                log(f"FLUSHED logs job={job['_id']} lines={len(batch)}")
-                batch.clear()
+                if len(batch) >= FLUSH_EVERY:
+                    await jobs_coll.update_one(
+                        {"_id": job["_id"], "WorkerId": WORKER_ID},
+                        {
+                            "$set": {"LastLogAt": time.time()},
+                            "$push": {"LogTail": {"$each": batch, "$slice": -MAX_LOG_LINES}},
+                        },
+                    )
+                    log(f"FLUSHED logs job={job['_id']} lines={len(batch)}")
+                    batch.clear()
 
     reader_task = asyncio.create_task(reader())
 

@@ -10,6 +10,8 @@ from torch import nn
 
 from difflogic import LogicLayer, GroupSum
 
+DATASET_PATH = os.getenv("DATASET_PATH","../data")
+
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -95,8 +97,8 @@ def main():
         tv_transforms.Lambda(lambda x: torch.cat([(x > (i + 1) / 4).float() for i in range(3)], dim=0)),
     ])
 
-    train_ds = datasets.CIFAR10(root="../data", train=True, download=True, transform=tfms)  # [web:384]
-    test_ds  = datasets.CIFAR10(root="../data", train=False, download=True, transform=tfms)
+    train_ds = datasets.CIFAR10(root=DATASET_PATH, train=True, download=False, transform=tfms)  # [web:384]
+    test_ds  = datasets.CIFAR10(root=DATASET_PATH, train=False, download=False, transform=tfms)
 
     train_loader = DataLoader(train_ds, batch_size=128, shuffle=True, num_workers=4, pin_memory=True)
     test_loader  = DataLoader(test_ds, batch_size=128, shuffle=False, num_workers=4, pin_memory=True)
