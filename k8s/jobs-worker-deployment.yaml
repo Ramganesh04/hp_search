@@ -1,0 +1,60 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jobs-worker
+  labels:
+    app: jobs-worker
+spec:
+  replicas: 1  # 2 GPU workers across nodes
+  selector:
+    matchLabels:
+      app: jobs-worker
+  template:
+    metadata:
+      labels:
+        app: jobs-worker
+    spec:
+      # GPU node affinity (RTX 4060)
+      nodeSelector:
+        nvidia.com/gpu: "true"  # or whatever your node labels are
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: worker
+        image: ghcr.io/ramganesh04/jobs-worker:0.1 
+        env:
+        - name: MONGO_URI
+          value: "mongodb://jobs-mongo:27017"
+        - name: MAX_CONCURRENT
+          value: "2"
+        - name: POLL_SECONDS
+          value: "5"
+        - name: TRAIN_SCRIPT
+          value: "/app/src/train.py"
+        - name: DATASET_PATH
+          value: "/app/data"
+        resources:
+          requests:
+            cpu: "2"
+            memory: "4Gi"
+            nvidia.com/gpu: 1  # 1 GPU per pod
+          limits:
+            cpu: "4"
+            memory: "8Gi"
+            nvidia.com/gpu: 1
+        # No external port needed (worker polls Mongo)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jobs-worker
+spec:
+  selector:
+    app: jobs-worker
+  ports:
+  - port: 8080  # for logs/metrics if needed
+    targetPort: 8080
+  type: ClusterIP  # internal only

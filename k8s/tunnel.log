@@ -1,0 +1,11 @@
+nohup: ignoring input
+Status:	
+	machine: multinode-gpu
+	pid: 375149
+	route: 10.96.0.0/12 -> 192.168.49.2
+	minikube: Running
+	services: []
+    errors: 
+		minikube: no errors
+		router: no errors
+		loadbalancer emulator: no errors

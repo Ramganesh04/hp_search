@@ -1,0 +1,47 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jobs-api
+  labels:
+    app: jobs-api
+spec:
+  replicas: 1  # 2 API pods for HA
+  selector:
+    matchLabels:
+      app: jobs-api
+  template:
+    metadata:
+      labels:
+        app: jobs-api
+    spec:
+      containers:
+      - name: jobs-api
+        image: ghcr.io/ramganesh04/jobs-api:0.1 
+        ports:
+        - containerPort: 8000
+        env:
+        - name: MONGO_URI
+          value: "mongodb://jobs-mongo:27017"
+        - name: MONGO_DB
+          value: "jobsdb"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jobs-api
+spec:
+  selector:
+    app: jobs-api
+  ports:
+  - port: 8000
+    targetPort: 8000
+    nodePort: 30080  # access via minikube ip:30080
+  type: NodePort
