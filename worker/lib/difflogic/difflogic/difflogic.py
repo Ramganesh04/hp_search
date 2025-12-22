@@ -27,7 +27,8 @@ class LogicLayer(torch.nn.Module):
             hard_connections: bool = False,
             num_connections: int = 16,
             noise_temp: float = 0.1,
-            entmax_alpha: float = 1.5
+            entmax_alpha: float = 1.5,
+            residual: bool = False
     ):
         """
         :param in_dim: input dimensionality of the layer
@@ -44,7 +45,12 @@ class LogicLayer(torch.nn.Module):
         :param noise_temp: temperature for Gaussian noise (for sparsemax_noise)
         """
         super().__init__()
-        self.weights = torch.nn.parameter.Parameter(torch.randn(out_dim, 16, device=device))
+        if not residual:
+            self.weights = torch.nn.parameter.Parameter(torch.randn(out_dim, 16, device=device))
+        else:
+            tens = torch.full((out_dim,16),0.1/15,device=device)
+            tens[:,3] = 0.9
+            self.weights = torch.nn.Parameter(tens)
         self.in_dim = in_dim
         self.out_dim = out_dim
         self.device = device
@@ -57,6 +63,7 @@ class LogicLayer(torch.nn.Module):
         self.noise_temp = noise_temp
         self.entmax_alpha = entmax_alpha
         self.implementation = implementation
+        self.residual = residual
         if self.implementation is None and device == 'cuda':
             self.implementation = 'cuda'
         elif self.implementation is None and device == 'cpu':
@@ -324,16 +331,24 @@ class LogicLayer(torch.nn.Module):
 
 
     def get_connections(self, connections, device='cuda'):
-        assert self.out_dim * 2 >= self.in_dim, 'The number of neurons must not be smaller than half of inputs.'
+    # Modified to handle cases where out_dim < in_dim/2 (compression layers)
         if connections == 'random':
+            # Each output neuron needs 2 inputs
+            # When compressing (out_dim < in_dim/2), we can still randomly sample pairs
             c = torch.randperm(2 * self.out_dim) % self.in_dim
-            c = torch.randperm(self.in_dim)[c].reshape(2, self.out_dim)
+            c = c.reshape(2, self.out_dim)
             a, b = c[0].to(torch.int64).to(device), c[1].to(torch.int64).to(device)
             return a, b
         elif connections == 'unique':
+            # For unique connections, we need out_dim * 2 <= in_dim
+            # If compression is too aggressive, fall back to random with reuse
+            if self.out_dim * 2 > self.in_dim:
+                print(f"Warning: Cannot generate unique connections for out_dim={self.out_dim}, in_dim={self.in_dim}. Using random connections.")
+                return self.get_connections('random', device)
             return get_unique_connections(self.in_dim, self.out_dim, device)
         else:
             raise ValueError(connections)
+
     
 
     def get_connection_entropy(self):
