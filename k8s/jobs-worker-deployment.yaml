@@ -15,7 +15,7 @@ spec:
       labels:
         app: jobs-worker
     spec:
-      # GPU node affinity (RTX 4060)
+      runtimeClassName: nvidia
       nodeSelector:
         nvidia.com/gpu: "true"  # or whatever your node labels are
       tolerations:
