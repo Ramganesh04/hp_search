@@ -17,14 +17,3 @@ MongoDB (job_epochs) ← epoch metrics + logs
 - **Log tail** (200 lines) + structured `job_epochs` collection
 - **Timeout/retry** logic with atomic Mongo job claims
 
-## Files
-```
-├── api/           # FastAPI /jobs → Mongo
-│   ├── app.py
-│   └── Dockerfile
-└── worker/src        # PyTorch executor + train.py
-    ├── main.py
-    ├── train.py
-    └── Dockerfile (nvidia/cuda:12.1.1 + torch cu121)
-```
-
