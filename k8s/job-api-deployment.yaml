@@ -6,7 +6,7 @@ metadata:
   labels:
     app: jobs-api
 spec:
-  replicas: 1  # 2 API pods for HA
+  replicas: 1  
   selector:
     matchLabels:
       app: jobs-api
@@ -17,7 +17,8 @@ spec:
     spec:
       containers:
       - name: jobs-api
-        image: ghcr.io/ramganesh04/jobs-api:0.1 
+        image: jobs-api:0.2 
+        imagePullPolicy: Never
         ports:
         - containerPort: 8000
         env:
@@ -43,5 +44,5 @@ spec:
   ports:
   - port: 8000
     targetPort: 8000
-    nodePort: 30080  # access via minikube ip:30080
+    nodePort: 30080  
   type: NodePort
