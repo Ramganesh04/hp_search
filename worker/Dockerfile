@@ -1,4 +1,3 @@
-
 FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
 # apt-get stuff first (stable)
 RUN apt-get update && apt-get install -y --no-install-recommends \
