@@ -43,7 +43,6 @@ curl -sS -X POST "http://$(minikube ip):30080/jobs" \
 ```
 
 ### `gateOptimizer` values
-`difflogic` rejects unknown values with `ValueError: Invalid gate function option`. Valid options are:
 - `softmax`
 - `gumbel_softmax`
 - `sparsemax`
@@ -53,10 +52,6 @@ curl -sS -X POST "http://$(minikube ip):30080/jobs" \
 - `entmax`
 - `relu_normalized`
 - `balenas`
-
-## Mongo schema (important)
-The Go API writes **lowercase** BSON keys (see `api/models.go`), e.g. `status`, `timeCreated`, `hyperparameters.*`.
-The worker expects and updates those same lowercase keys (it won’t match `Status`/`Hyperparameters` style documents).
 
 ## Repo layout
 - `api/main.go`, `api/models.go` — Go API (Gin + Mongo).
