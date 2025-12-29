@@ -48,18 +48,18 @@ def usable_vram_bytes(device: int = 0) -> int:
 
 
 def estimate_required_vram_bytes(job: dict) -> int:
-    hp = job.get("Hyperparameters", {})
-    gates = int(hp.get("GATES", 0))
-    layers = int(hp.get("NETWORK_LAYERS", 0))
+    hp = job.get("hyperparameters", {}) or {}
+    gates = int(hp.get("gates", 0) or 0)
+    layers = int(hp.get("networkLayers", 0) or 0)
     return 2 * 1024**3 + (2 * 1024) * gates * layers
 
 
 # ------------ Mongo helpers ------------
 async def claim_one_job(jobs_coll) -> Optional[dict]:
     job = await jobs_coll.find_one_and_update(
-        {"Status": "Pending"},
-        {"$set": {"Status": "Running", "WorkerId": WORKER_ID, "ClaimedAt": time.time()}},
-        sort=[("TimeCreated", 1)],
+        {"status": "Pending"},
+        {"$set": {"status": "Running", "workerId": WORKER_ID, "claimedAt": time.time()}},
+        sort=[("timeCreated", 1)],
         return_document=ReturnDocument.AFTER,
     )
     if job:
@@ -70,27 +70,38 @@ async def claim_one_job(jobs_coll) -> Optional[dict]:
 async def release_job(jobs_coll, job: dict, reason: str):
     log(f"RELEASING job={job['_id']} reason={reason}")
     await jobs_coll.update_one(
-        {"_id": job["_id"], "WorkerId": WORKER_ID, "Status": "Running"},
+        {"_id": job["_id"], "workerId": WORKER_ID, "status": "Running"},
         {
-            "$set": {"Status": "Pending", "ReleaseReason": reason, "ReleasedAt": time.time()},
-            "$unset": {"WorkerId": "", "ClaimedAt": ""},
+            "$set": {"status": "Pending", "releaseReason": reason, "releasedAt": time.time()},
+            "$unset": {"workerId": "", "claimedAt": ""},
         },
     )
 
 
 def build_cmd(job: dict) -> list[str]:
-    hp = job["Hyperparameters"]
+    hp = job["hyperparameters"]
+
+    # Matches Go API bson tags in api/models.go
+    gate_optimizer = str(hp["gateOptimizer"])
+    gates = int(hp["gates"])
+    network_layers = int(hp["networkLayers"])
+    grouping = int(hp["grouping"])
+    group_sum_tau = int(hp["groupSumTau"])
+    residual_layers = int(hp["residualLayers"])
+    noise_temp = float(hp["noiseTemp"])
+    epochs = int(hp["epochs"])
+
     return [
         sys.executable, TRAIN_SCRIPT,
         "--job-id", str(job["_id"]),
-        "--gate-optimizer", str(hp["GATE_OPTIMIZER"]),
-        "--gates", str(hp["GATES"]),
-        "--network-layers", str(hp["NETWORK_LAYERS"]),
-        "--grouping", str(hp["GROUPING"]),
-        "--group-sum-tau", str(hp["GROUP_SUM_TAU"]),
-        "--residual-layers", str(hp["RESIDUAL_LAYERS"]),
-        "--noise-temp", str(hp["NOISE_TEMP"]),
-        "--epochs", str(hp["EPOCHS"]),
+        "--gate-optimizer", gate_optimizer,
+        "--gates", str(gates),
+        "--network-layers", str(network_layers),
+        "--grouping", str(grouping),
+        "--group-sum-tau", str(group_sum_tau),
+        "--residual-layers", str(residual_layers),
+        "--noise-temp", str(noise_temp),
+        "--epochs", str(epochs),
     ]
 
 
@@ -120,8 +131,8 @@ def parse_epoch_line(line: str) -> Optional[dict]:
 # ------------ Async subprocess runner (per job) ------------
 async def run_train_and_stream(jobs_coll, epochs_coll, job: dict, cmd: list[str]) -> int:
     await jobs_coll.update_one(
-        {"_id": job["_id"], "WorkerId": WORKER_ID},
-        {"$set": {"Cmd": cmd, "StartedAt": time.time(), "LogTail": []}},
+        {"_id": job["_id"], "workerId": WORKER_ID},
+        {"$set": {"cmd": cmd, "startedAt": time.time(), "logTail": []}},
     )
     log(f"START subprocess job={job['_id']} cmd={' '.join(cmd[:3])} ...")
 
@@ -157,10 +168,10 @@ async def run_train_and_stream(jobs_coll, epochs_coll, job: dict, cmd: list[str]
 
                 if len(batch) >= FLUSH_EVERY:
                     await jobs_coll.update_one(
-                        {"_id": job["_id"], "WorkerId": WORKER_ID},
+                        {"_id": job["_id"], "workerId": WORKER_ID},
                         {
-                            "$set": {"LastLogAt": time.time()},
-                            "$push": {"LogTail": {"$each": batch, "$slice": -MAX_LOG_LINES}},
+                            "$set": {"lastLogAt": time.time()},
+                            "$push": {"logTail": {"$each": batch, "$slice": -MAX_LOG_LINES}},
                         },
                     )
                     log(f"FLUSHED logs job={job['_id']} lines={len(batch)}")
@@ -175,16 +186,16 @@ async def run_train_and_stream(jobs_coll, epochs_coll, job: dict, cmd: list[str]
         proc.kill()
         await proc.wait()
         await jobs_coll.update_one(
-            {"_id": job["_id"], "WorkerId": WORKER_ID},
-            {"$set": {"Status": "TimedOut", "FailedAt": time.time()}},
+            {"_id": job["_id"], "workerId": WORKER_ID},
+            {"$set": {"status": "TimedOut", "failedAt": time.time()}},
         )
         return 124
     finally:
         await reader_task
         if batch:
             await jobs_coll.update_one(
-                {"_id": job["_id"], "WorkerId": WORKER_ID},
-                {"$push": {"LogTail": {"$each": batch, "$slice": -MAX_LOG_LINES}}},
+                {"_id": job["_id"], "workerId": WORKER_ID},
+                {"$push": {"logTail": {"$each": batch, "$slice": -MAX_LOG_LINES}}},
             )
             log(f"FINAL-FLUSH logs job={job['_id']} lines={len(batch)}")
 
@@ -208,14 +219,14 @@ async def handle_job(sem: asyncio.Semaphore, jobs_coll, epochs_coll, job: dict):
         if rc == 0:
             log(f"FINISHED job={job_id}")
             await jobs_coll.update_one(
-                {"_id": job_id, "WorkerId": WORKER_ID},
-                {"$set": {"Status": "Finished", "FinishedAt": time.time(), "ReturnCode": rc}},
+                {"_id": job_id, "workerId": WORKER_ID},
+                {"$set": {"status": "Finished", "finishedAt": time.time(), "returnCode": rc}},
             )
         else:
             log(f"FAILED job={job_id} rc={rc}")
             await jobs_coll.update_one(
-                {"_id": job_id, "WorkerId": WORKER_ID},
-                {"$set": {"Status": "Failed", "FailedAt": time.time(), "ReturnCode": rc}},
+                {"_id": job_id, "workerId": WORKER_ID},
+                {"$set": {"status": "Failed", "failedAt": time.time(), "returnCode": rc}},
             )
 
 

@@ -9,10 +9,9 @@ from torch.utils.data import DataLoader
 from torch import nn
 
 from difflogic import LogicLayer, GroupSum
+import torchvision
 
 DATASET_PATH = os.getenv("DATASET_PATH","../data")
-
-
 def parse_args():
     p = argparse.ArgumentParser()
 
@@ -30,7 +29,6 @@ def parse_args():
     p.add_argument("--epochs", type=int, default=200)
 
     return p.parse_args()
-
 
 def build_model(
     *,
@@ -84,7 +82,6 @@ def eval_accuracy(model, loader, device, mode="eval"):
 
     model.train(orig)
     return correct / max(1, total)
-
 
 def main():
     args = parse_args()  # argparse CLI parsing. [web:267]
